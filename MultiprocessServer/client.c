@@ -8,7 +8,7 @@
 #include <arpa/inet.h>
 #include "wrap.h"
 
-#define SERVER_PORT 6666
+#define SERVER_PORT 8888
 #define MAXLINE 1024
 
 int main(int argc, char *argv[]) {

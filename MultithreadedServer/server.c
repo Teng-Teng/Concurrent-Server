@@ -58,6 +58,9 @@ int main(void) {
     server_addr.sin_addr.s_addr = htonl(INADDR_ANY);   //  specify any local IP
     
     listenfd = Socket(AF_INET, SOCK_STREAM, 0);
+    int opt = 1;
+    setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
     Bind(listenfd, (struct sockaddr *)&server_addr, sizeof(server_addr));
     Listen(listenfd, 128);
     client_addr_len = sizeof(client_addr);

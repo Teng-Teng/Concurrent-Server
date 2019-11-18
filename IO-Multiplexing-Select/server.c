@@ -11,6 +11,7 @@
 int main(int argc, char *argv[]) {
     int listenfd, connfd;
     char buf[BUFSIZ];
+    char str[INET_ADDRSTRLEN];     //  #define INET_ADDRSTRLEN 16   use "[+d" to check
     struct sockaddr_in server_addr, client_addr;
     socklen_t client_addr_len;
     
@@ -43,6 +44,9 @@ int main(int argc, char *argv[]) {
         if (FD_ISSET(listenfd, &rset)) {
             client_addr_len = sizeof(client_addr);
             connfd = Accept(listenfd, (struct sockaddr *)&client_addr, &client_addr_len);
+	    printf("receive from %s at port %d\n", 
+                inet_ntop(AF_INET, &client_addr.sin_addr, str, sizeof(str)),
+                ntohs(client_addr.sin_port));    //  print client information(IP/PORT)
             FD_SET(connfd, &allset);
             
             if (maxfd < connfd)
@@ -56,6 +60,7 @@ int main(int argc, char *argv[]) {
             if (FD_ISSET(i, &rset)) {
                 n = Read(i, buf, sizeof(buf));
                 if (n == 0) {
+		    printf("the client %d closed...\n", i);
                     Close(i);
                     FD_CLR(i, &allset);
                 } 
