@@ -5,6 +5,6 @@
     gcc server.c wrap.c -o server -Wall
 # Start the server
     ./server
-# Use netcat to test
+# Using netcat to test
     nc 127.0.0.1 SERVER_PORT
 ```

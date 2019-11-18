@@ -162,7 +162,7 @@ again:
  * Reads a line from the specified socket and stores it into the string pointed to by vptr..
  * @param {void *} vptr This is the pointer to an array of chars where the string read is stored.
  */
-ssize_t Readlind(int fd, void *vptr, size_t maxlen) {
+ssize_t Readline(int fd, void *vptr, size_t maxlen) {
     ssize_t n, rc;
     char c, *ptr;
     ptr = vptr;
@@ -170,7 +170,7 @@ ssize_t Readlind(int fd, void *vptr, size_t maxlen) {
     for (n = 1; n < maxlen; n++) {
         if ((rc = my_read(fd, &c)) == 1) {   // ptr[] = "hello\n"
             *ptr++ = c;
-            if (c == "\n")
+            if (c == '\n')
                 break;
         } else if (rc == 0) {
             *ptr = 0;
