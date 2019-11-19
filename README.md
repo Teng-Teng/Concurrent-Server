@@ -1,21 +1,28 @@
-# 1. Multiprocess Tcp Server
 
-```bash
-# Compile the program
-    gcc server.c wrap.c -o server -Wall
-# Start the server
-    ./server
-# Using netcat to test
-    nc 127.0.0.1 SERVER_PORT
-```
-
-# 2. Multithreaded Tcp Server
+# 1. Multithreaded Tcp Server
 
 ```bash
 # Compile the program
     gcc server.c wrap.c -o server -Wall -lpthread
+    gcc client.c wrap.c -o client -Wall
 # Start the server
     ./server
-# Using netcat to test
+# Start the client
+    ./client
+  or using netcat to test
+    nc 127.0.0.1 SERVER_PORT
+```
+
+# 2. I/O Multiplexing--Select
+
+```bash
+# Compile the program
+    gcc server.c wrap.c -o server -Wall
+    gcc client.c wrap.c -o client -Wall
+# Start the server
+    ./server
+# Start the client
+    ./client
+  or using netcat to test
     nc 127.0.0.1 SERVER_PORT
 ```
