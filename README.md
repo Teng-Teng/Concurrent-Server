@@ -13,7 +13,7 @@
     nc 127.0.0.1 SERVER_PORT
 ```
 
-# 2. I/O Multiplexing--Select
+# 2. I/O Multiplexing Server--Epoll
 
 ```bash
 # Compile the program
