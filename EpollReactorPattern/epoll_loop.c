@@ -13,12 +13,12 @@
 #define MAX_EVENTS 1024
 #define BUFLEN 4096
 
-void recvdata(int fd, int events, void *arg);
-void senddata(int fd, int events, void *arg);
+void recvData(int fd, int events, void *arg);
+void sendData(int fd, int events, void *arg);
 
 //  description file descriptor information
-struce myevent_s {
-    inf fd;
+struct myevent_s {
+    int fd;
     int events;
     void *arg;
     void (*call_back)(int fd, int events, void *arg);
@@ -62,6 +62,19 @@ void eventAdd(int efd, int events, struct myevent_s *ev) {
     else
         printf("event add success [fd = %d], [op = %d], [events = %0X]\n", ev->fd, op, events);
         
+    return;
+}
+
+/*  Remove a file descriptor from the red-black tree g_efd  */
+void eventDel(int efd, struct myevent_s *ev) {
+    struct epoll_event epv = {0, {0}};
+    if (ev->status != 1) 
+        return;
+        
+    epv.data.ptr = NULL;
+    ev->status = 0;
+    epoll_ctl(efd, EPOLL_CTL_DEL, ev->fd, &epv);
+    
     return;
 }
 
@@ -154,7 +167,7 @@ void sendData(int fd, int events, void *arg) {
 void initListenSocket(int efd, short port) {
     struct sockaddr_in server_addr;
     
-    inf lfd = socket(AF_INET, SOCK_STREAM, 0);
+    int lfd = socket(AF_INET, SOCK_STREAM, 0);
     fcntl(lfd, F_SETFL, O_NONBLOCK);                    //  set socket to non-blocking
     
     // memset(&server_addr, 0, sizeof(server_addr));
@@ -182,7 +195,7 @@ int main(int argc, char *argv[]) {
     initListenSocket(g_efd, port);                      //  initialize listening socket
     
     struct epoll_event events[MAX_EVENTS + 1];          //  save the file descriptors that meet the listening event
-    print("server running on port[%d]\n", port);
+    printf("server running on port[%d]\n", port);
     
     int checkpos = 0, i;
     while (1) {

@@ -28,3 +28,5 @@
 ```
 
 # 3. Highly Performance I/O Server--Epoll Reactor Pattern
+  Use epoll as an edge-triggered (EPOLLET) interface with nonblocking file descriptors.
+
