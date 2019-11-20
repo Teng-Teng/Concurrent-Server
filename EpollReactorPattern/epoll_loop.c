@@ -32,7 +32,7 @@ int g_efd;                                              //  global variable, sav
 struct myevent_s g_events[MAX_EVENTS + 1];              //  [1, listenfd]
 
 /*  Initialize member variables of struct myevent_s  */
-void eventset(struct myevent_s *ev, int fd, void (*call_back)(int, int, void *), void *arg) {
+void eventSet(struct myevent_s *ev, int fd, void (*call_back)(int, int, void *), void *arg) {
     ev->fd = fd;
     ev->call_back = call_back;
     ev->events = 0;
@@ -45,8 +45,28 @@ void eventset(struct myevent_s *ev, int fd, void (*call_back)(int, int, void *),
     return;
 }
 
+/*  Add a file descriptor to the red-black tree g_efd  */
+void eventAdd(int efd, int events, struct myevent_s *ev) {
+    struct epoll_event epv = {0, {0}};
+    int op;
+    epv.data.ptr = ev;
+    epv.events = ev->events = events;                   //  EPOLLIN or EPOLLOUT
+    
+    if (ev->status == 0) {
+        op = EPOLL_CTL_ADD;                             //  add it to red-black tree g_efd, set status to 1
+        ev->status = 1;
+    }
+    
+    if (epoll_ctl(efd, op, ev->fd, &epv) < 0)
+        printf("event add failed [fd = %d], [events = %d]\n", ev->fd, events);
+    else
+        printf("event add success [fd = %d], [op = %d], [events = %0X]\n", ev->fd, op, events);
+        
+    return;
+}
+
 /*  Establish a connection with the client  */
-void acceptconn(int lfd, int events, void *arg) {
+void acceptConn(int lfd, int events, void *arg) {
     struct sockaddr_in client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
     int cfd, i;
@@ -75,8 +95,8 @@ void acceptconn(int lfd, int events, void *arg) {
             break;
         }
         
-        eventset(&g_events[i], cfd, recvdata, &g_events[i]);        //  set a struct myevent_s for cfd, set callback function to recvdata
-        eventadd(g_efd, EPOLLIN, &g_events[i]);                       //  add cfd to the red-black tree, listen for read event
+        eventSet(&g_events[i], cfd, recvData, &g_events[i]);        //  set a struct myevent_s for cfd, set callback function to recvdata
+        eventAdd(g_efd, EPOLLIN, &g_events[i]);                       //  add cfd to the red-black tree, listen for read event
         
     } while(0);
     
@@ -85,7 +105,50 @@ void acceptconn(int lfd, int events, void *arg) {
     
 }
 
+void recvData(int fd, int events, void *arg) {
+    struct myevent_s *ev = (struct myevent_s *)arg;
+    int len;
+    
+    len = recv(fd, ev->buf, sizeof(ev->buf), 0);        //  receive a message from the socket, save the data to member variable buf of struct myevent_s
+    eventDel(g_efd, ev);                                //  remove the node from the red-black tree
+    
+    if (len > 0) {
+        ev->len = len;
+        ev->buf[len] = '\0';                            //  add an end tag for the string
+        printf("C[%d]: %s\n", fd, ev->buf);
+        
+        eventSet(ev, fd, sendData, ev);                 //  set the callback function to sendData for fd
+        eventAdd(g_efd, EPOLLOUT, ev);                  //  add fd to red-black tree, listen for write event
+        
+    } else if (len == 0) {
+        close(ev->fd);
+        printf("recv[fd = %d] pos[%ld], closed\n", fd, ev-g_events);        //  address subtraction to get the offset element position
+        
+    } else {
+        close(ev->fd);
+        printf("recv[fd = %d] error[%d]: %s\n", fd, errno, strerror(errno));
+    }
+    
+    return;
+}
 
+void sendData(int fd, int events, void *arg) {
+    struct myevent_s *ev = (struct myevent_s *)arg;
+    int len;
+    
+    len = send(fd, ev->buf, ev->len, 0);                //  send the data back to the client, retroreflective server
+    eventDel(g_efd, ev);                                //  remove the node from the red-black tree
+
+    if (len > 0) {
+        printf("send[fd = %d], [%d]%s\n", fd, len, ev->buf);
+        eventSet(ev, fd, recvData, ev);                 //  set the callback function to recvData for fd
+        eventAdd(g_efd, EPOLLIN, ev);                   //  add fd to red-black tree, listen for read event
+        
+    } else {
+        close(ev->fd);
+        printf("send[fd = %d] error[%d]: %s\n", fd, errno, strerror(errno));
+    }
+}
 
 /*  Create socket, initialize listenfd */
 void initListenSocket(int efd, short port) {
@@ -103,8 +166,8 @@ void initListenSocket(int efd, short port) {
     bind(lfd, (struct sockaddr *)&server_addr, sizeof(server_addr));
     listen(lfd, 128);
     
-    eventset(&g_events[MAX_EVENTS], lfd, acceptconn, &g_events[MAX_EVENTS]);
-    eventadd(efd, EPOLLIN, &g_events[MAX_EVENTS]);
+    eventSet(&g_events[MAX_EVENTS], lfd, acceptConn, &g_events[MAX_EVENTS]);
+    eventAdd(efd, EPOLLIN, &g_events[MAX_EVENTS]);
 }
 
 int main(int argc, char *argv[]) {
@@ -136,7 +199,7 @@ int main(int argc, char *argv[]) {
             if (duration >= 60) {
                 close(g_events[checkpos].fd);           //  close the connection with the client
                 printf("fd %d timeout\n", g_events[checkpos].fd);
-                eventdel(g_efd, &g_events[checkpos]);   //  remove from the red-black tree g_efd
+                eventDel(g_efd, &g_events[checkpos]);   //  remove from the red-black tree g_efd
             }
         }
         
@@ -148,6 +211,8 @@ int main(int argc, char *argv[]) {
             break;
         }
             
+        /*  When successful, epoll_wait() returns the number of file descriptors
+        ready for the requested I/O, call the callback function  */
         for (i = 0; i < nfd; i++) {
             struct myevent_s *ev = (struct myevent_s *)events[i].data.ptr;
             
@@ -161,7 +226,6 @@ int main(int argc, char *argv[]) {
         
     return 0;
 }
-
 
 
 
