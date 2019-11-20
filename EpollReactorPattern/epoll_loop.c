@@ -31,6 +31,82 @@ struce myevent_s {
 int g_efd;                                              //  global variable, save the file descriptor returned by epoll_create
 struct myevent_s g_events[MAX_EVENTS + 1];              //  [1, listenfd]
 
+/*  Initialize member variables of struct myevent_s  */
+void eventset(struct myevent_s *ev, int fd, void (*call_back)(int, int, void *), void *arg) {
+    ev->fd = fd;
+    ev->call_back = call_back;
+    ev->events = 0;
+    ev->arg = arg;
+    ev->status = 0;
+    memset(ev->buf, 0, sizeof(ev->buf));
+    ev->len = 0;
+    ev->last_active = time(NULL);
+    
+    return;
+}
+
+/*  Establish a connection with the client  */
+void acceptconn(int lfd, int events, void *arg) {
+    struct sockaddr_in client_addr;
+    socklen_t client_addr_len = sizeof(client_addr);
+    int cfd, i;
+    
+    if ((cfd = accept(lfd, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
+        if (errno != EAGAIN && errno != EINTR) {
+            //  error handling
+        }
+        printf("%s: accept, %s\n", __func__, strerror(errno));
+        return;
+    }
+    
+    do {
+        for (i = 0; i < MAX_EVENTS; i++)
+            if (g_events[i].status == 0)
+                break;
+                
+        if (i == MAX_EVENTS) {
+            printf("%s: max connection limit %d\n", __func__, MAX_EVENTS);
+            break;
+        }
+        
+        int flag = 0;
+        if ((flag = fcntl(cfd, F_SETFL, O_NONBLOCK)) < 0) {         //  set cfd to non-blocking
+            printf("%s: function fcntl failed to set cfd to non-blocking, %s\n", __func__, strerror(errno));
+            break;
+        }
+        
+        eventset(&g_events[i], cfd, recvdata, &g_events[i]);        //  set a struct myevent_s for cfd, set callback function to recvdata
+        eventadd(g_efd, EPOLLIN, &g_events[i]);                       //  add cfd to the red-black tree, listen for read event
+        
+    } while(0);
+    
+    printf("new connection [%s: %d][time: %ld], pos[%d]\n", 
+            inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port), g_events[i].last_active, i);
+    
+}
+
+
+
+/*  Create socket, initialize listenfd */
+void initListenSocket(int efd, short port) {
+    struct sockaddr_in server_addr;
+    
+    inf lfd = socket(AF_INET, SOCK_STREAM, 0);
+    fcntl(lfd, F_SETFL, O_NONBLOCK);                    //  set socket to non-blocking
+    
+    // memset(&server_addr, 0, sizeof(server_addr));
+    bzero(&server_addr, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(SERVER_PORT);         //  specify the port number
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);   //  specify any local IP
+    
+    bind(lfd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+    listen(lfd, 128);
+    
+    eventset(&g_events[MAX_EVENTS], lfd, acceptconn, &g_events[MAX_EVENTS]);
+    eventadd(efd, EPOLLIN, &g_events[MAX_EVENTS]);
+}
+
 int main(int argc, char *argv[]) {
     unsigned short port = SERVER_PORT;
     if (argc == 2)
@@ -40,7 +116,7 @@ int main(int argc, char *argv[]) {
     if (g_efd <= 0)
         printf("print efd in %s error %s\n", __func__, strerror(errno));
         
-    initlistensocket(g_efd, port);                      //  initialize listening socket
+    initListenSocket(g_efd, port);                      //  initialize listening socket
     
     struct epoll_event events[MAX_EVENTS + 1];          //  save the file descriptors that meet the listening event
     print("server running on port[%d]\n", port);
@@ -85,10 +161,6 @@ int main(int argc, char *argv[]) {
         
     return 0;
 }
-
-
-
-
 
 
 
