@@ -106,6 +106,34 @@ threadpool_t *threadpool_create(int min_thread_num, int max_thread_num, int queu
     return NULL;
 }
 
+/*  add a new task to the task queue  */
+int add_task(threadpool_t *pool, void *(*function)(void *arg), void *arg) {
+    pthread_mutex_lock(&(pool->lock));
+    
+    while ((pool->queue_size == pool->queue_max_size) && (!pool->shutdown)) 
+        pthread_cond_wait(&(pool->queue_not_full), &(pool->lock));
+        
+    if (pool->shutdown) {
+        pthread_cond_broadcast(&(pool->queue_not_empty));
+        pthread_mutex_unlock(&(pool->lock));
+        return 0;
+    }
+    
+    if (pool->task_queue[pool->queue_rear].arg != NULL)
+        pool->task_queue[pool->queue_rear].arg = NULL;
+        
+    /*  add a new task to the task queue  */
+    pool->task_queue[pool->queue_rear].function = function;
+    pool->task_queue[pool->queue_rear].arg = arg;
+    pool->queue_rear = (pool->queue_rear + 1) % pool->queue_max_size;                   /*  move the tail pointer, simulate circular queue  */
+    pool->queue_size++;
+    
+    pthread_cond_signal(&(pool->queue_not_empty));                                      /*  unblock at least one of the threads that are blocked on the condition variable cond (if any threads are blocked on cond).  */
+    pthread_mutex_unlock(&(pool->lock));
+    
+    return 0;
+}
+
 /*  the new thread starts execution by invoking thread_start  */
 void *thread_start(void *threadpool) {
     threadpool_t *pool = (threadpool_t *)threadpool;
@@ -184,7 +212,7 @@ void *management_thread(void *threadpool) {
     return NULL;
 }
 
-/*  simulate thread processing task  */
+/*  simulate child thread processing task  */
 void *process(void *arg) {
     printf("thread 0x%x working on task %d\n", (unsigned int)pthread_self(), (int)arg);
     sleep(1); 
@@ -202,7 +230,7 @@ int main(void) {
         num[i] = i;
         printf("add task %d\n", i);
         
-        threadpool_add(thread_pool, process, (void *)&num[i]);          /*  add tasks  */
+        add_task(thread_pool, process, (void *)&num[i]);          /*  add a new task to the task queue  */
     }
     
     sleep(10);                                                          /*  simulate other tasks done by the server, for example, wait for the child threads to complete the task，
@@ -212,6 +240,8 @@ int main(void) {
     
     return 0;
 }
+
+
 
 
 
