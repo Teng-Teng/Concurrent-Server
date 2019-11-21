@@ -160,8 +160,39 @@ void *thread_start(void *threadpool) {
                 }
             }
         }
+        
+        /*  terminate all the threads in the thread pool  */
+        if (pool->shutdown) {
+            pthread_mutex_unlock(&(pool->lock));
+            printf("thread 0x%x is exiting\n", (unsigned int)pthread_self());
+            pthread_detach(pthread_self());
+            pthread_exit(NULL);
+        }
+        
+        /*  condition variable satisfied, unblock the thread that are blocked on the condition variable and process task  */
+        task.function = pool->task_queue[pool->queue_front].function;           /*  get a task from the task queue  */
+        task.arg = pool->task_queue[pool->queue_front].arg;
+        pool->queue_front = (pool->queue_front + 1) % pool->queue_max_size;     /*  remove the task at the front the task queue, simulate circular queue  */
+        pool->queue_size--;
+        
+        pthread_cond_broadcast(&(pool->queue_not_full));                        /*  notify that new tasks can be added  */
+        pthread_mutex_unlock(&(pool->lock));
+        
+        /*  do the task  */
+        printf("thread 0x%x starts working\n", (unsigned int)pthread_self());
+        pthread_mutex_lock(&(pool->thread_counter));
+        pool->active_thread_num++;
+        pthread_mutex_unlock(&(pool->thread_counter));
+        
+        (*(task.function))(task.arg);                                           /*  execute callback function  */
+        
+        printf("thread 0x%x complete the task\n", (unsigned int)pthread_self());
+        pthread_mutex_lock(&(pool->thread_counter));
+        pool->active_thread_num--;
+        pthread_mutex_unlock(&(pool->thread_counter));
     }
-    return NULL;
+    
+    pthread_exit(NULL);   
 }
 
 /*  the management thread starts execution by invoking management_thread  */
@@ -240,8 +271,6 @@ int main(void) {
     
     return 0;
 }
-
-
 
 
 
