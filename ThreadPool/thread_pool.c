@@ -17,9 +17,9 @@
 typedef struct {
     void *(*function)(void *);                  /*  function pointer，callback function  */
     void *arg;                                  /*  function parameter  */
-} threadpool_task_t;                            /*  the task of child thread  */
+} threadpool_task_t;                            /*  task for the thread  */
 
-/*  thread pool struct  */
+/*  thread pool struct  */ 
 struct threadpool_t {
     pthread_mutex_t lock;                       /*  lock of the thread pool  */
     pthread_mutex_t thread_counter;             /*  lock of the busy thread--busy_thread_num  */
@@ -46,7 +46,75 @@ struct threadpool_t {
 };
 
 
+/*  create the thread pool  */
+threadpool_t *threadpool_create(int min_thread_num, int max_thread_num, int queue_max_size) {
+    int i;
+    threadpool_t *pool = NULL;                                          
+    
+    do {
+        if ((pool = (threadpool_t *)malloc(sizeof(threadpool_t))) == NULL) {
+            printf("malloc thread pool failed\n");
+            break;
+        }
+        
+        pool->min_thread_num = min_thread_num;
+        pool->max_thread_num = max_thread_num;
+        pool->active_thread_num = 0;
+        pool->live_thread_num = min_thread_num;
+        pool->wait_exit_thread_num = 0;
+        pool->queue_size = 0;
+        pool->queue_max_size = queue_max_size;
+        pool->queue_front = 0;
+        pool->queue_rear = 0;
+        pool->shutdown = false;
+        
+        /*  according to the maximum thread num, allocate memory block for thread array, sets the first max_thread_num bytes of the memory block to 0  */
+        pool->threads = (pthread_t *)malloc(sizeof(pthread_t) * max_thread_num);
+        if (pool->threads == NULL) {
+            printf("malloc threads failed\n");
+            break;
+        }
+        memset(pool->threads, 0, sizeof(pthread_t) * max_thread_num);
+        
+        /*  according to the queue_max_size, allocate memory block for the task queue  */
+        pool->task_queue = (threadpool_task_t *)malloc(sizeof(threadpool_task_t) * queue_max_size);
+        if (pool->task_queue == NULL) {
+            printf("malloc task_queue failed\n");
+            break;
+        }
+        
+        /*  initialize the mutex and condition variables  */
+        if (pthread_mutex_init(&(pool->lock), NULL) != 0 || pthread_mutex_init(&(pool->thread_counter), NULL) != 0
+            || pthread_cond_init(&(pool->queue_not_empty), NULL) != 0 || pthread_cond_init(&(pool->queue_not_full), NULL) != 0) {
+            printf("initialize the mutex or condition variables failed\n");
+            break;
+        }
+        
+        /*  create min_thread_num new thread  */
+        for (i = 0; i < min_thread_num; i++) {
+            pthread_create(&(pool->threads[i]), NULL, threadpool_thread, (void *)pool);
+            printf("create thread 0x%x...\n", (unsigned int)pool->threads[i]);
+        }
+        
+        /*  create management thread  */
+        pthread_create(&(pool->management_tid), NULL, management_thread, (void *)pool);
+        return pool;
+        
+    } while (0);
+    
+    /*  deallocates the thread pool memory previously allocated by a call to malloc  */
+    threadpool_free(pool);
+    return NULL;
+}
 
+/*  simulate thread processing task  */
+void *process(void *arg) {
+    printf("thread 0x%x working on task %d\n", (unsigned int)pthread_self(), (int)arg);
+    sleep(1); 
+    printf("task %d completed\n", (int)arg);
+    
+    return NULL;
+}
 
 int main(void) {
     threadpool_t *thread_pool = threadpool_create(3, 100, 100);         /*  create the thread pool  */
@@ -65,6 +133,8 @@ int main(void) {
     
     return 0;
 }
+
+
 
 
 
