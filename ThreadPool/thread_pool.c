@@ -45,7 +45,6 @@ struct threadpool_t {
     int shutdown;                               /*  a flag to show thread pool status--true or false  */
 };
 
-
 /*  create the thread pool  */
 threadpool_t *threadpool_create(int min_thread_num, int max_thread_num, int queue_max_size) {
     int i;
@@ -92,7 +91,7 @@ threadpool_t *threadpool_create(int min_thread_num, int max_thread_num, int queu
         
         /*  create min_thread_num new thread  */
         for (i = 0; i < min_thread_num; i++) {
-            pthread_create(&(pool->threads[i]), NULL, threadpool_thread, (void *)pool);
+            pthread_create(&(pool->threads[i]), NULL, thread_start, (void *)pool);
             printf("create thread 0x%x...\n", (unsigned int)pool->threads[i]);
         }
         
@@ -104,6 +103,37 @@ threadpool_t *threadpool_create(int min_thread_num, int max_thread_num, int queu
     
     /*  deallocates the thread pool memory previously allocated by a call to malloc  */
     threadpool_free(pool);
+    return NULL;
+}
+
+/*  the new thread starts execution by invoking thread_start  */
+void *thread_start(void *threadpool) {
+    threadpool_t *pool = (threadpool_t *)threadpool;
+    threadpool_task_t task;
+    
+    while (true) {
+        /*  lock must be taken to wait on condition variable  */
+        pthread_mutex_lock(&(pool->lock));
+        
+        /*  if there is no task, the calling thread would block on the condition variable  */
+        while ((pool->queue_size == 0) && (!pool->shutdown)) {
+            printf("thread 0x%x is waiting\n", (unsigned int)pthread_self());
+            pthread_cond_wait(&(pool->queue_not_empty), &(pool->lock));
+            
+            /*  remove idle thread  */
+            if (pool->wait_exit_thread_num > 0) {
+                pool->wait_exit_thread_num--;
+                
+                /*  unlock mutex, terminate calling thread  */
+                if (pool->live_thread_num > pool->min_thread_num) {
+                    printf("thread 0x%x is exiting\n", (unsigned int)pthread_self());
+                    pool->live_thread_num--;
+                    pthread_mutex_unlock(&(pool->lock));
+                    pthread_exit(NULL);
+                }
+            }
+        }
+    }
     return NULL;
 }
 
