@@ -169,7 +169,7 @@ void *thread_start(void *threadpool) {
             pthread_exit(NULL);
         }
         
-        /*  condition variable satisfied, unblock the thread that are blocked on the condition variable and process task  */
+        /*  when the condition variable is satisfied, unblock the thread that are blocked on the condition variable and process the task  */
         task.function = pool->task_queue[pool->queue_front].function;           /*  get a task from the task queue  */
         task.arg = pool->task_queue[pool->queue_front].arg;
         pool->queue_front = (pool->queue_front + 1) % pool->queue_max_size;     /*  remove the task at the front the task queue, simulate circular queue  */
@@ -212,6 +212,7 @@ void *management_thread(void *threadpool) {
         int active_thread_num = pool->active_thread_num;
         pthread_mutex_unlock(&(pool->thread_counter));
         
+        /*  the thread pool dynamically grows and shrinks to fit the current workload  */
         /*  algorithm for creating new threads  */
         if (queue_size >= MIN_WAIT_TASK_NUM && live_thread_num < pool->max_thread_num) {        
             pthread_mutex_lock(&(pool->lock));
@@ -243,6 +244,47 @@ void *management_thread(void *threadpool) {
     return NULL;
 }
 
+/*  destroy the thread pool  */
+int threadpool_destroy(threadpool_t *pool) {
+    int i;
+    if (pool == NULL)
+        return -1;
+    pool->shutdown = true;
+    pthread_join(pool->management_tid, NULL);                           /*  join with a terminated thread  */
+    
+    for (i = 0; i < pool->live_thread_num; i++) 
+        pthread_cond_broadcast(&(pool->queue_not_empty));               /*  notify all idle threads  */
+    
+    for (i = 0; i < pool->live_thread_num; i++) 
+        pthread_join(pool->threads[i], NULL);
+        
+    threadpool_free(pool);
+    return 0;
+}
+
+/*  deallocates the memory, destroy the mutex object and condition variable  */
+int threadpool_free(threadpool_t *pool) {
+    if (pool == NULL)
+        return -1;
+        
+    if (pool->task_queue)
+        free(pool->task_queue);                                         /*  deallocates the memory previously allocated by a call to malloc  */
+    
+    if (pool->threads) {
+        free(pool->threads);
+        pthread_mutex_unlock(&(pool->lock));
+        pthread_mutex_destroy(&(pool->lock));                           /*  destroy the mutex object  */
+        pthread_mutex_unlock(&(pool->thread_counter));
+        pthread_mutex_destroy(&(pool->thread_counter));
+        pthread_cond_destroy(&(pool->queue_not_empty));                 /*  destroy the given condition variable  */
+        pthread_cond_destroy(&(pool->queue_not_full));
+    }
+    
+    free(pool);
+    pool = NULL;
+    return 0;
+}
+
 /*  simulate child thread processing task  */
 void *process(void *arg) {
     printf("thread 0x%x working on task %d\n", (unsigned int)pthread_self(), (int)arg);
@@ -271,6 +313,7 @@ int main(void) {
     
     return 0;
 }
+
 
 
 
