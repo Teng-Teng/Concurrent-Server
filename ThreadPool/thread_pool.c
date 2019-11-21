@@ -17,7 +17,7 @@
 typedef struct {
     void *(*function)(void *);                  /*  function pointer，callback function  */
     void *arg;                                  /*  function parameter  */
-} threadpool_task_t;                            /*  task for the thread  */
+} threadpool_task_t;                            /*  task for the child thread  */
 
 /*  thread pool struct  */ 
 struct threadpool_t {
@@ -112,26 +112,73 @@ void *thread_start(void *threadpool) {
     threadpool_task_t task;
     
     while (true) {
-        /*  lock must be taken to wait on condition variable  */
-        pthread_mutex_lock(&(pool->lock));
+        pthread_mutex_lock(&(pool->lock));                                              /*  lock must be taken to wait on condition variable  */
         
         /*  if there is no task, the calling thread would block on the condition variable  */
-        while ((pool->queue_size == 0) && (!pool->shutdown)) {
+        while ((pool->queue_size == 0) && (!pool->shutdown)) {                          
             printf("thread 0x%x is waiting\n", (unsigned int)pthread_self());
             pthread_cond_wait(&(pool->queue_not_empty), &(pool->lock));
             
             /*  remove idle thread  */
-            if (pool->wait_exit_thread_num > 0) {
+            if (pool->wait_exit_thread_num > 0) {                                       
                 pool->wait_exit_thread_num--;
                 
                 /*  unlock mutex, terminate calling thread  */
-                if (pool->live_thread_num > pool->min_thread_num) {
+                if (pool->live_thread_num > pool->min_thread_num) {                     
                     printf("thread 0x%x is exiting\n", (unsigned int)pthread_self());
                     pool->live_thread_num--;
                     pthread_mutex_unlock(&(pool->lock));
                     pthread_exit(NULL);
                 }
             }
+        }
+    }
+    return NULL;
+}
+
+/*  the management thread starts execution by invoking management_thread  */
+void *management_thread(void *threadpool) {
+    int i;
+    threadpool_t *pool = (threadpool_t *)threadpool;
+    
+    while (!pool->shutdown) {
+        sleep(DEFAULT_TIME);                                            /*  management thread pool at regular intervals  */
+        
+        pthread_mutex_lock(&(pool->lock));
+        int queue_size = pool->queue_size;
+        int live_thread_num = pool->live_thread_num;
+        pthread_mutex_unlock(&(pool->lock));
+        
+        pthread_mutex_lock(&(pool->thread_counter));
+        int active_thread_num = pool->active_thread_num;
+        pthread_mutex_unlock(&(pool->thread_counter));
+        
+        /*  algorithm for creating new threads  */
+        if (queue_size >= MIN_WAIT_TASK_NUM && live_thread_num < pool->max_thread_num) {        
+            pthread_mutex_lock(&(pool->lock));
+            int add = 0;
+            
+            /*  create DEFAULT_THREAD_VARY threads each time  */
+            for (i = 0; i < pool->max_thread_num && add < DEFAULT_THREAD_VARY && pool->live_thread_num < pool->max_thread_num; i++) {
+                if (pool->threads[i] == 0 || !is_thread_alive(pool->threads[i])) {
+                    pthread_create(&(pool->threads[i]), NULL, thread_start, (void *)pool);
+                    add++;
+                    pool->live_thread_num++;
+                }
+            }
+            pthread_mutex_unlock(&(pool->lock));
+        }
+        
+        /*  algorithm for killing redundant idle threads  */
+        if ((active_thread_num * 2) < live_thread_num && live_thread_num > pool->min_thread_num) {
+            /*  kill DEFAULT_THREAD_VARY threads each time  */
+            pthread_mutex_lock(&(pool->lock));
+            pool->wait_exit_thread_num = DEFAULT_THREAD_VARY;
+            pthread_mutex_unlock(&(pool->lock));
+            
+            for (i = 0; i < DEFAULT_THREAD_VARY; i++) 
+                pthread_cond_signal(&(pool->queue_not_empty));          /*  unblock at least one of the threads that are blocked on the condition variable cond (if any threads are blocked on cond).
+                                                                        and call pthread_exit() function to terminate the calling thread  */
         }
     }
     return NULL;
@@ -158,11 +205,15 @@ int main(void) {
         threadpool_add(thread_pool, process, (void *)&num[i]);          /*  add tasks  */
     }
     
-    sleep(10);                                                          /*  Waiting for the child threads to complete the task  */
+    sleep(10);                                                          /*  simulate other tasks done by the server, for example, wait for the child threads to complete the task，
+                                                                        the server establish connection with the client, callback event, read and write data  */
+                                                              
     threadpool_destroy(thread_pool);                                    /*  destroy the thread pool  */
     
     return 0;
 }
+
+
 
 
 
