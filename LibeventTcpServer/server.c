@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <signal.h>
+#include <unistd.h>
 #ifndef _WIN32
 #include <netinet/in.h>
 # ifdef _XOPEN_SOURCE_EXTENDED
@@ -15,7 +16,6 @@
 #include <event2/listener.h>
 #include <event2/util.h>
 #include <event2/event.h>
-
 
 #define SERVER_PORT 8888
 
@@ -80,22 +80,6 @@ int main(int argc, const char* argv[]) {
 
     return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
