@@ -8,7 +8,7 @@
 #include <ctype.h>
 #include "wrap.h"
 
-#define SERVER_PORT 7000
+#define SERVER_PORT 7777
 #define MAXLINE 80
 #define OPEN_MAX 1024
 

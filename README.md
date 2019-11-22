@@ -3,8 +3,8 @@
 
 ```bash
 # Compile the program
-    gcc server.c wrap.c -o server -Wall -lpthread
-    gcc client.c wrap.c -o client -Wall
+    gcc server.c wrap.c -o server -Wall -g -lpthread
+    gcc client.c wrap.c -o client -Wall -g
 # Start the server
     ./server
 # Start the client
@@ -17,8 +17,8 @@
 
 ```bash
 # Compile the program
-    gcc server.c wrap.c -o server -Wall
-    gcc client.c wrap.c -o client -Wall
+    gcc server.c wrap.c -o server -Wall -g
+    gcc client.c wrap.c -o client -Wall -g
 # Start the server
     ./server
 # Start the client
