@@ -1,14 +1,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <sys/epoll.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <dirent.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <fcntl.h>
+#include <ctype.h>
+#include "epoll_server.h"
 
 #define MAXSIZE 2048
 
@@ -39,6 +43,68 @@ int get_line(int cfd, char *buf, int size) {
     if (-1 == n)
         i = n;
     return i;
+}
+
+/*  get file type by file name  */
+const char *get_file_type(const char *filename) {
+    char* dot;
+    dot = strrchr(filename, '.');                               //  returns a pointer to the last occurrence of the character c in the string 
+    
+    if (dot == NULL)
+        return "text/plain; charset=utf-8";
+    if (strcmp(dot, ".html") == 0 || strcmp(dot, ".htm") == 0)
+        return "text/html; charset=utf-8";
+    if (strcmp(dot, ".jpg") == 0 || strcmp(dot, ".jpeg") == 0)
+        return "image/jpeg";
+    if (strcmp(dot, ".gif") == 0)
+        return "image/gif";
+    if (strcmp(dot, ".png") == 0)
+        return "image/png";
+    if (strcmp(dot, ".css") == 0)
+        return "text/css";
+    if (strcmp(dot, ".au") == 0)
+        return "audio/basic";
+    if (strcmp(dot, ".wav") == 0)
+        return "audio/wav";
+    if (strcmp(dot, ".avi") == 0)
+        return "video/x-msvideo";
+    if (strcmp(dot, ".mov") == 0 || strcmp(dot, ".qt") == 0)
+        return "video/quicktime";
+    if (strcmp(dot, ".mpeg") == 0 || strcmp(dot, ".mpe") == 0)
+        return "video/mpeg";
+    if (strcmp(dot, ".vrml") == 0 || strcmp(dot, ".wrl") == 0)
+        return "model/vrml"; 
+    if (strcmp(dot, ".midi") == 0 || strcmp(dot, ".mid") == 0)
+        return "audio/midi";
+    if (strcmp(dot, ".mp3") == 0)
+        return "audio/mpeg";
+    if (strcmp(dot, ".ogg") == 0)
+        return "application/ogg";
+    if (strcmp(dot, ".pac") == 0)
+        return "application/x-ns-proxy-autoconfig";
+        
+    return "text/plain; charset=utf-8";
+}
+
+/*  error page  */
+void send_error(int cfd, int status, char *title, char *text) {
+    char buf[4096] = {0};
+    
+    sprintf(buf, "%s %d %s\r\n", "HTTP/1.1", status, title);
+    sprintf(buf + strlen(buf), "Content-Type:%s\r\n", "text/html");
+    sprintf(buf + strlen(buf), "Content-Length:%d\r\n", -1);
+    sprintf(buf + strlen(buf), "Connection: close\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    send(cfd, "\r\n", 2, 0);
+    
+    memset(buf, 0, sizeof(buf));
+    sprintf(buf, "<html><head><title>%d %s</title></head>\n", status, title);
+    sprintf(buf + strlen(buf), "<body bgcolor=\"#cc99cc\"><h4 align=\"center\">%d %s</h4>\n", status, title);
+    sprintf(buf + strlen(buf), "%s\n", text);
+    sprintf(buf + strlen(buf), "<hr>\n</body>\n</html>\n");
+    send(cfd, buf, strlen(buf), 0);
+    
+    return;
 }
 
 /*  create listen file descriptor, add it to the red-black tree  */
@@ -124,25 +190,47 @@ void disconnect(int cfd, int epfd) {
 }
 
 /*  send server local files to the browser  */
-void send_file(int cfd, const char *file) {
-    int n = 0;
-    char buf[1024];
+void send_file(int cfd, const char *filename) {
+    int len = 0, ret;
+    char buf[4096] = {0};
     
-    int fd = open(file, O_RDONLY);
+    int fd = open(filename, O_RDONLY);
     if (fd == -1) {
-        //  send 404 error page to browser
+        send_error(cfd, 404, "Not Found", "No such file or directory");         //  send 404 error page to browser
         perror("open error");
         exit(1);        
     }
     
-    while ((n = read(fd, buf, sizeof(buf))) > 0)
-        send(cfd, buf, n, 0);
+    while ((len = read(fd, buf, sizeof(buf))) > 0) {
+        ret = send(cfd, buf, len, 0);
+        if (ret == -1) {
+            printf("errno = %d\n", errno);
+            if (errno == EAGAIN) {
+                perror("send error");
+                continue;
+            } else if (errno == EINTR) {
+                perror("send error");
+                continue;
+            } else {
+                perror("send error");
+                exit(1);
+            }
+        }   
+        
+        if (ret < 4096)
+            printf("-----send ret: %d\n", ret);
+    }
         
     close(fd);
 }
 
+/*  send directory to the browser  */
+void send_dir(int cfd, const char *dirname) {
+    
+}
+
 /**
- * send the HTTP response
+ * send the HTTP response header
  * @param  {cfd}  connection file descriptor  
  * @param  {error_no}  error number  
  * @param  {description}  error description  
@@ -150,28 +238,35 @@ void send_file(int cfd, const char *file) {
  * @param  {len}  file length  
  * @return {void}
 */
-void send_response(int cfd, int error_no, char* description, char* type, int len) {
+void send_response_header(int cfd, int error_no, const char* description, const char* type, long len) {
     char buf[1024] = {0};
-    sprintf(buf, "HTTP/1.1 %d %s\r\n", error_no, description);
-    sprintf(buf + strlen(buf), "%s\r\n", type);
-    sprintf(buf + strlen(buf), "Content-Length:%d\r\n", len);
+    sprintf(buf, "HTTP/1.1 %d %s\r\n", error_no, description);      //  status line
+    sprintf(buf + strlen(buf), "Content-Type:%s\r\n", type);        //  response fields
+    sprintf(buf + strlen(buf), "Content-Length:%ld\r\n", len);
     send(cfd, buf, strlen(buf), 0);
-    send(cfd, "\r\n", 2, 0);
+    send(cfd, "\r\n", 2, 0);                                        //  blank line
 }
 
 /*  the server processes the request, sending back its response, providing a status code and appropriate data  */
-void http_request(const char *file) {
-    struct stat sbuf;
+void http_request(int cfd, const char *path) {
+    decode_str(path, path);                                     //  decode garbled chinese text(%23 %34 %5f)--->chinese
+    char *file = path + 1;                                      //  get the file name the client wants to access, path = /hello.c
+    if (strcmp(path, "/") == 0)                                 //  if didn't specify a resource to access, display the contents of the resource directory by default
+        file = "./";
     
-    int ret = stat(file, &sbuf);                                //  get file status and check if the file exists
-    if (ret != 0) {
-        //  send 404 error page to browser
+    struct stat st;
+    int ret = stat(file, &st);                                  //  get file status and check if the file exists
+    if (ret == -1) {
+        send_error(cfd, 404, "Not Found", "No such file or directory");         //  send 404 error page to browser
         perror("stat error");
-        exit(1);        
+        return;        
     }
     
-    if (S_ISREG(sbuf.s_mode)) {                                 //  the file is a regular file
-        send_response(cfd, 200, "OK", "Content-Type: text/plain; charset=iso-8859-1", sbuf.st_size);    //  send the HTTP response                                       //  send the HTTP response
+    if (S_ISDIR(st.st_mode)) {                                   //  the file is a directory
+        send_response_header(cfd, 200, "OK", get_file_type(".html"), -1);    //  send the HTTP response header                                      
+        send_dir(cfd, file);
+    } else if (S_ISREG(st.st_mode)) {                            //  the file is a regular file
+        send_response_header(cfd, 200, "OK", get_file_type(file), st.st_size);                                        
         send_file(cfd, file);                                   //  send server local files to the browser
     }
 }
@@ -179,8 +274,9 @@ void http_request(const char *file) {
 /*  read data  */
 void do_read(int cfd, int epfd) {
     char line[1024] = {0};
-    int line = get_line(cfd, line, sizeof(line));
-    if (line == 0) {
+    int len = get_line(cfd, line, sizeof(line));                //  read the HTTP request line "GET /hello.c HTTP/1.1"
+    
+    if (len == 0) {
         printf("the client %d closed...\n", cfd);
         disconnect(cfd, epfd);
     } else {
@@ -188,20 +284,30 @@ void do_read(int cfd, int epfd) {
         sscanf(line, "%[^ ] %[^ ] %[^ ]", method, path, protocol);
         printf("method = %s, path = %s, protocol = %s\n", method, path, protocol);
         
+        printf("the HTTP request line: %s\n", line);
+        printf("================ the HTTP request header ================\n");
+        //  read the rest of the data
+        while (len) {
+            char buf[1024] = {0};
+            int len = get_line(cfd, buf, sizeof(buf));                
+            printf("-----: %s\n", buf);
+        }
+        printf("======================== The End ========================\n");
+        
+        /*  
         while (1) {
             char buf[1024] = {0};
-            line = get_line(cfd, buf, sizeof(buf));
+            len = get_line(cfd, buf, sizeof(buf));
             if (len == '\n')
                 break;
             else if (len == -1)
                 break;
-        }
-        
-        if (strncasecmp(method, "GET", 3) == 0) {
-            char *file = path + 1;                              //  get the file name the client wants to access
-            http_request(cfd, file);
-        }
+        } 
+        */
     }
+    
+    if (strncasecmp(method, "GET", 3) == 0)                     //  HTTP request line "GET /hello.c HTTP/1.1", check whether it's a get request
+        http_request(cfd, path);
 }
 
 /*  use epoll to wait for an I/O event  */
