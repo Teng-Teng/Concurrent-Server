@@ -46,7 +46,7 @@ int get_line(int cfd, char *buf, int size) {
 }
 
 /*  get file type by file name  */
-const char *get_file_type(const char *filename) {
+const char *get_file_type(const char *filename) { 
     char* dot;
     dot = strrchr(filename, '.');                               //  returns a pointer to the last occurrence of the character c in the string 
     
@@ -182,8 +182,8 @@ void do_accept(int lfd, int epfd) {
 
 void disconnect(int cfd, int epfd) {
     int ret = epoll_ctl(epfd, EPOLL_CTL_DEL, cfd, NULL);
-    if (ret != 0) {
-        perror("epoll_ctl error");
+    if (ret == -1) {
+        perror("epoll_ctl delete cfd error");
         exit(1);
     }
     close(cfd);
@@ -226,7 +226,67 @@ void send_file(int cfd, const char *filename) {
 
 /*  send directory to the browser  */
 void send_dir(int cfd, const char *dirname) {
+    int i, ret;
+    char buf[4096] = {0};
     
+    sprintf(buf, "<html><head><title>directory name: %s</title></head>", dirname);
+    sprintf(buf + strlen(buf), "<body><h1>current directory: %s</h1><table>", dirname);
+
+    char enstr[1024] = {0};
+    char path[1024] = {0};
+    
+    struct dirent** ptr;
+    int num = scandir(dirname, &ptr, NULL, alphasort);
+    
+    for (i = 0; i < num; ++i) {
+        char* name = ptr[i]->d_name;
+        
+        sprintf(path, "%s/%s", dirname, name);
+        printf("path = %s ============\n", path);
+        struct stat st;
+        stat(path, &st);
+        
+        encode_str(enstr, sizeof(enstr), name);
+        
+        if (S_ISREG(st.st_mode))
+            sprintf(buf + strlen(buf), "<tr><td><a href=\"%s\">%s</a></td><td>%ld</td></tr>", enstr, name, (long)st.st_size);
+        else if (S_ISDIR(st.st_mode))
+            sprintf(buf + strlen(buf), "<tr><td><a href=\"%s/\">%s</a></td><td>%ld</td></tr>", enstr, name, (long)st.st_size);
+    
+        ret = send(cfd, buf, strlen(buf), 0);
+        if (ret == -1) {
+            printf("errno = %d\n", errno);
+            if (errno == EAGAIN) {
+                perror("send error");
+                continue;
+            } else if (errno == EINTR) {
+                perror("send error");
+                continue;
+            } else {
+                perror("send error");
+                exit(1);
+            }
+        } 
+        memset(buf, 0, sizeof(buf));
+    }
+    
+    sprintf(buf + strlen(buf), "</table></body></html>");
+    send(cfd, buf, strlen(buf), 0);
+    printf("Directory information successfully sent!\n");
+    
+#if 0 
+    DIR* dir = opendir(dirname);                                    //  open a directory
+    if (dir == NULL) {
+        perror("open dir error");
+        exit(1);
+    }
+    
+    struct dirent* ptr = NULL;
+    while ((ptr = readdir(dir)) != NULL)
+        char* name = ptr->d_name;
+        
+    closedir(dir);
+#endif
 }
 
 /**
@@ -248,7 +308,11 @@ void send_response_header(int cfd, int error_no, const char* description, const 
 }
 
 /*  the server processes the request, sending back its response, providing a status code and appropriate data  */
-void http_request(int cfd, const char *path) {
+void http_request(const char *request, int cfd) {
+    char method[16], path[1024], protocol[16];
+    sscanf(request, "%[^ ] %[^ ] %[^ ]", method, path, protocol);
+    printf("method = %s, path = %s, protocol = %s\n", method, path, protocol);
+    
     decode_str(path, path);                                     //  decode garbled chinese text(%23 %34 %5f)--->chinese
     char *file = path + 1;                                      //  get the file name the client wants to access, path = /hello.c
     if (strcmp(path, "/") == 0)                                 //  if didn't specify a resource to access, display the contents of the resource directory by default
@@ -280,14 +344,10 @@ void do_read(int cfd, int epfd) {
         printf("the client %d closed...\n", cfd);
         disconnect(cfd, epfd);
     } else {
-        char method[16], path[256], protocol[16];
-        sscanf(line, "%[^ ] %[^ ] %[^ ]", method, path, protocol);
-        printf("method = %s, path = %s, protocol = %s\n", method, path, protocol);
-        
-        printf("the HTTP request line: %s\n", line);
         printf("================ the HTTP request header ================\n");
-        //  read the rest of the data
-        while (len) {
+        printf("the HTTP request line: %s\n", line);
+        
+        while (len) {                                           //  read the rest of the data
             char buf[1024] = {0};
             int len = get_line(cfd, buf, sizeof(buf));                
             printf("-----: %s\n", buf);
@@ -306,8 +366,10 @@ void do_read(int cfd, int epfd) {
         */
     }
     
-    if (strncasecmp(method, "GET", 3) == 0)                     //  HTTP request line "GET /hello.c HTTP/1.1", check whether it's a get request
-        http_request(cfd, path);
+    if (strncasecmp("GET", line, 3) == 0) {                   //  HTTP request line "GET /hello.c HTTP/1.1", check whether it's a get request
+        http_request(line, cfd);
+        disconnect(cfd, epfd);
+    }                     
 }
 
 /*  use epoll to wait for an I/O event  */
