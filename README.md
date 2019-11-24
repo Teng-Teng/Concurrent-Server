@@ -32,7 +32,18 @@
 # 3. Highly Performance I/O Server--Epoll Reactor Pattern
      Use epoll as an edge-triggered (EPOLLET) interface with nonblocking file descriptors.
 
-# 4. Libevent Tcp Server
+# 4. Epoll HTTP Server
+
+```bash
+# Compile the program
+    gcc epoll_server.c -o epoll_server -Wall -g 
+# Start the server
+    ./epoll_server SERVER_PORT SERVER_DIRECTORY
+# Open the browser
+    enter URL "127.0.0.1:SERVER_PORT/FILENAME" 
+```
+
+# 5. Libevent Tcp Server
 
 ```bash
 # Compile the program

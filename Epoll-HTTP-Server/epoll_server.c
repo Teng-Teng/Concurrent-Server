@@ -390,15 +390,7 @@ void do_read(int cfd, int epfd) {
         printf("================ the HTTP request header ================\n");
         printf("the HTTP request line: %s\n", line);
         
-        while (len) {                                           //  read the rest of the data
-            char buf[1024] = {0};
-            len = get_line(cfd, buf, sizeof(buf));                
-            printf("-----: %s\n", buf);
-        }
-        printf("======================== The End ========================\n");
-        
-        /*  
-        while (1) {
+        while (1) {                                         //  read the rest of the data
             char buf[1024] = {0};
             len = get_line(cfd, buf, sizeof(buf));
             if (len == '\n')
@@ -406,7 +398,16 @@ void do_read(int cfd, int epfd) {
             else if (len == -1)
                 break;
         } 
+        
+        /*
+        while (len) {                                           
+            char buf[1024] = {0};
+            len = get_line(cfd, buf, sizeof(buf));                
+            printf("-----: %s\n", buf);
+        }
         */
+        printf("======================== The End ========================\n");
+        
     }
     
     if (strncasecmp("GET", line, 3) == 0) {                   //  HTTP request line "GET /hello.c HTTP/1.1", check whether it's a get request
