@@ -86,6 +86,49 @@ const char *get_file_type(const char *filename) {
     return "text/plain; charset=utf-8";
 }
 
+/*  convert hexadecimal to decimal  */
+int hexit(char c) {
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+        
+    return 0;
+}
+
+/*  encode chinese ---> utf-8 chinese text(%23 %34 %5f)  */
+void encode_str(char* to, int tosize, const char* from) {
+    int tolen;
+    
+    for (tolen = 0; *from != '\0' && tolen + 4 < tosize; ++from) {
+        if (isalnum(*from) || strchr("/_.-~", *from) != (char*)0) {
+            *to = *from;
+            ++to;
+            ++tolen;
+        } else {
+            sprintf(to, "%%%02x", (int)*from & 0xff);
+            to += 3;
+            tolen += 3;
+        }
+    }
+    *to = '\0';
+}
+
+/*  decode utf-8 chinese text(%23 %34 %5f)--->chinese  */
+void decode_str(char* to, char* from) {
+    for ( ; *from != '\0'; ++to, ++from) {
+        if (from[0] == '%' && isxdigit(from[1]) && isxdigit(from[2])) {
+            *to = hexit(from[1])*16 + hexit(from[2]);
+            from += 2;
+        }
+        else
+            *to = *from;
+    }
+    *to = '\0';
+}
+
 /*  error page  */
 void send_error(int cfd, int status, char *title, char *text) {
     char buf[4096] = {0};
@@ -154,7 +197,7 @@ void do_accept(int lfd, int epfd) {
     struct sockaddr_in client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
     
-    cfd = accept(lfd, (struct sockaddr *)&client_addr, &client_addr_len);
+    int cfd = accept(lfd, (struct sockaddr *)&client_addr, &client_addr_len);
     if (cfd == -1) {
         perror("accept error");
         exit(1);        
@@ -313,7 +356,7 @@ void http_request(const char *request, int cfd) {
     sscanf(request, "%[^ ] %[^ ] %[^ ]", method, path, protocol);
     printf("method = %s, path = %s, protocol = %s\n", method, path, protocol);
     
-    decode_str(path, path);                                     //  decode garbled chinese text(%23 %34 %5f)--->chinese
+    decode_str(path, path);                                     //  decode utf-8 chinese text(%23 %34 %5f)--->chinese
     char *file = path + 1;                                      //  get the file name the client wants to access, path = /hello.c
     if (strcmp(path, "/") == 0)                                 //  if didn't specify a resource to access, display the contents of the resource directory by default
         file = "./";
@@ -349,7 +392,7 @@ void do_read(int cfd, int epfd) {
         
         while (len) {                                           //  read the rest of the data
             char buf[1024] = {0};
-            int len = get_line(cfd, buf, sizeof(buf));                
+            len = get_line(cfd, buf, sizeof(buf));                
             printf("-----: %s\n", buf);
         }
         printf("======================== The End ========================\n");
