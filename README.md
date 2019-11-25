@@ -43,7 +43,18 @@
     enter URL "127.0.0.1:SERVER_PORT/FILENAME" 
 ```
 
-# 5. Libevent Tcp Server
+# 5. Libevent HTTP Server
+
+```bash
+# Compile the program
+    gcc libevent_http.c main.c -o server -Wall -g -levent 
+# Start the server
+    ./server SERVER_PORT SERVER_DIRECTORY
+# Open the browser
+    enter URL "127.0.0.1:SERVER_PORT/FILENAME" 
+```
+
+# 6. Libevent Tcp Server
 
 ```bash
 # Compile the program

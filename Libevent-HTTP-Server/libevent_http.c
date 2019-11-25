@@ -19,6 +19,49 @@
 
 #define _HTTP_CLOSE_ "Connection: close\r\n"
 
+/*  convert hexadecimal to decimal  */
+int hexit(char c) {
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+        
+    return 0;
+}
+
+/*  encode chinese ---> utf-8 chinese text(%23 %34 %5f)  */
+void strencode(char* to, int tosize, const char* from) {
+    int tolen;
+    
+    for (tolen = 0; *from != '\0' && tolen + 4 < tosize; ++from) {
+        if (isalnum(*from) || strchr("/_.-~", *from) != (char*)0) {
+            *to = *from;
+            ++to;
+            ++tolen;
+        } else {
+            sprintf(to, "%%%02x", (int)*from & 0xff);
+            to += 3;
+            tolen += 3;
+        }
+    }
+    *to = '\0';
+}
+
+/*  decode utf-8 chinese text(%23 %34 %5f)--->chinese  */
+void strdecode(char* to, char* from) {
+    for ( ; *from != '\0'; ++to, ++from) {
+        if (from[0] == '%' && isxdigit(from[1]) && isxdigit(from[2])) {
+            *to = hexit(from[1])*16 + hexit(from[2]);
+            from += 2;
+        }
+        else
+            *to = *from;
+    }
+    *to = '\0';
+}
+
 int response_http(struct bufferevent *bev, const char *method, char *path) {
     if (strcasecmp("GET", method) == 0) {
         strdecode(path, path);
@@ -103,7 +146,7 @@ int send_file_to_http(const char *filename, struct bufferevent *bev) {
     return 0;
 }
 
-int send_header(struct bufferevent *bev, int status_code, const char* description, const char* type, long len) {
+void send_header(struct bufferevent *bev, int status_code, const char* description, const char* type, long len) {
     char buf[256] = {0};
     
     sprintf(buf, "HTTP/1.1 %d %s\r\n", status_code, description);       //  HTTP/1.1 200 
@@ -136,9 +179,29 @@ int send_dir(struct bufferevent *bev, const char *dirname) {
     
     int num = scandir(dirname, &dirinfo, NULL, alphasort);
     for (i = 0; i < num; ++i) {
-
+        strencode(encode_name, sizeof(encode_name), dirinfo[i]->d_name);
+        sprintf(path, "%s%s", dirname, dirinfo[i]->d_name);
+        printf("####### path = %s\n", path);
+        
+        if (lstat(path, &st) < 0)
+            sprintf(buf + strlen(buf), "<tr><td><a href=\"%s\">%s</a></td></tr>", encode_name, dirinfo[i]->d_name);
+        else {
+            strftime(timestr, sizeof(timestr), "  %d  %b    %Y  %H:%M", localtime(&st.st_mtime));       //  format date and time
+            
+            if (S_ISREG(st.st_mode))
+                sprintf(buf + strlen(buf), "<tr><td><a href=\"%s\">%s</a></td><td>%s</td><td>%ld</td></tr>", encode_name, dirinfo[i]->d_name, timestr, st.st_size);
+            else if (S_ISDIR(st.st_mode))
+                sprintf(buf + strlen(buf), "<tr><td><a href=\"%s/\">%s</a></td><td>%s</td><td>%ld</td></tr>", encode_name, dirinfo[i]->d_name, timestr, st.st_size);
+        }
+        
+        bufferevent_write(bev, buf, strlen(buf));
+        memset(buf, 0, sizeof(buf));
     }
     
+    sprintf(buf + strlen(buf), "</table></body></html>");
+    bufferevent_write(bev, buf, strlen(buf));
+    printf("######## directory read successfully !!!!!!!!\n");
+    return 0;
 }
 
 void conn_readcb(struct bufferevent *bev, void *user_data) {
@@ -146,7 +209,7 @@ void conn_readcb(struct bufferevent *bev, void *user_data) {
     char buf[4096] = {0};
     char method[50], path[4096], protocol[32];
     bufferevent_read(bev, buf, sizeof(buf));
-    prinf("buf[%s]\n", buf);
+    printf("buf[%s]\n", buf);
     sscanf(buf, "%[^ ] %[^ ] %[^ \r\n]", method, path, protocol);
     printf("method = %s, path = %s, protocol = %s\n", method, path, protocol);
     
@@ -192,7 +255,6 @@ void listener_cb(struct evconnlistener *listener, evutil_socket_t fd, struct soc
 
     printf("************************ end call %s ************************ \n", __FUNCTION__);
 }
-
 
 
 
